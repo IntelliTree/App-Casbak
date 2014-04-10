@@ -1,14 +1,15 @@
 package App::Casbak;
-use Moo;
+use Moo 1.000007;
 use Carp;
-use Try::Tiny;
+use Try::Tiny 0.11;
 use JSON 'encode_json', 'decode_json';
-use File::Spec;
-use DataStore::CAS::FS;
-use DataStore::CAS::FS::Scanner;
-use DataStore::CAS::FS::Extractor;
-use App::Casbak::Snapshot;
+use File::Spec 3.33;
 use Module::Runtime 'check_module_name', 'require_module';
+use DataStore::CAS::FS 0.011;
+use Log::Any '$log';
+#use DataStore::CAS::FS::Scanner;
+#use DataStore::CAS::FS::Extractor;
+require App::Casbak::Snapshot;
 
 =head1 NAME
 
@@ -54,49 +55,23 @@ command classes under App::Casbak::Cmd namespace which implement the command
 line interface.  You can easily extend Casbak by writing new perl modules in
 the App::Casbak::Cmd:: namespace and adding them to your perl module path.
 
-=head1 LOGGING
-
-Casbak defines class methods for logging purposes.
-They are called as
-
-  App::Casbak::Error(@things)
-
-where @things can contain objects with auto-stringification.  *However* in
-the methods Debug() and Trace(), objects will be dumped with Data::Dumper
-(or Data::Printer) regardless of whether they supply stringification.
-
-No stringification occurs at all unless the log level has enabled
-the function.
-
-Functions are Error, Warn, Note, Into, Debug, Trace, and the default
-level is to display Note and above.
-
-Call App::Casbak->SetLogLevel($integer) to set the log level.
-
-(at some point in the future, these will be directable to custom
- user defined logging modules, and SetLogLevel will be ignored)
-
 =cut
 
-our $LogLevel= 0;
-sub SetLogLevel { $LogLevel= $_[-1]; }
-sub Error { return unless $LogLevel > -3; print STDERR "Error: ".join(" ", @_)."\n"; }
-sub Warn  { return unless $LogLevel > -2; print STDERR "Warning: ".join(" ", @_)."\n"; }
-sub Note  { return unless $LogLevel > -1; print STDERR "Notice: ".join(" ", @_)."\n"; }
-sub Info  { return unless $LogLevel >= 1; print STDERR "Info: ".join(" ", @_)."\n"; }
-sub Debug { return unless $LogLevel >= 2; print STDERR "Debug: ".Data::Dumper::Dumper(@_); }
-sub Trace { return unless $LogLevel >= 3; print STDERR "Trace: ".Data::Dumper::Dumper(@_); }
-
-our $VERSION= "0.0100";
-
-sub VersionParts {
-	return (int($VERSION), (int($VERSION*100)%100), (int($VERSION*10000)%100));
-}
+our $VERSION= "0.001000";
 
 sub VersionMessage {
-	"casbak backup utility, Copyright 2012 Michael Conrad\n"
-	."App::Casbak version: ".join('.',VersionParts())."\n"
-	."DataStore::CAS::FS version: ".join('.',DataStore::CAS::FS::VersionParts())."\n";
+	require version;
+	my $self= shift;
+	my $v= "casbak backup utility\n"
+		."Copyright (C) 2012-2013 Michael Conrad and IntelliTree Solutions llc\n"
+		."App::Casbak version: ". version->parse(__PACKAGE__->VERSION)->normal ."\n"
+		."DataStore::CAS::FS version: ". version->parse(DataStore::CAS::FS->VERSION)->normal ."\n"
+		."DataStore::CAS version: ". version->parse(DataStore::CAS->VERSION)->normal ."\n"
+		.(ref $self? ref($self->cas)." version: ". version->parse($self->cas->VERSION)->normal ."\n" : '')
+		."\n"
+		."casbak comes with ABSOLUTELY NO WARRANTY.\n"
+		."This is free software, distributed under the same terms as Perl.\n";
+	$v;
 }
 
 =head1 ATTRIBUTES

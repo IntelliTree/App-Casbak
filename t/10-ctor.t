@@ -11,7 +11,7 @@ use Storable 'dclone';
 
 use_ok('App::Casbak') or BAIL_OUT;
 
-chdir('t') || die "chdor: $!" if -d 't';
+chdir('t') || die "chdir: $!" if -d 't';
 -d 'cas_tmp' or BAIL_OUT('missing cas_tmp directory for testing file-based cas');
 
 sub cleandir {

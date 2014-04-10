@@ -21,24 +21,41 @@ use strict;
 use warnings;
 use Try::Tiny;
 use App::Casbak::Cmd;
+use Log::Any '$log';
+require Log::Any::Adapter;
+require Getopt::Long;
+
+my $log_filter= -(defined $ENV{CASBAK_DEBUG}? $ENV{CASBAK_DEBUG} + 1 : 0);
+Log::Any::Adapter->set('+App::Casbak::Logger', _filter => $log_filter);
+
+my $cmd;
+try {
+	my ($cmdclass, $params)= App::Casbak::Cmd->parse_argv(\@ARGV);
+
+	# Now that we've seen the --verbose/--quiet arguments, adjust our log level
+	Log::Any::Adapter->set('+App::Casbak::Logger', _filter => $log_filter - $params->{verbosity})
+		if defined $params->{verbosity};
+
+	# Create command object
+	$cmd= $cmdclass->new($params);
+	# When trace is enabled, dump the complete internal structure of the command object
+	$log->trace($cmd);
+}
+# Exceptions during constructor indicate invalid arguments
+catch {
+	if (ref $_ && ref($_)->can('pod_source')) {
+		require Pod::Usage;
+		Pod::Usage::pod2usage(-message => $_->message, -input => $_->pod_source, -exitcode => 2);
+	}
+	exit_exception($_, 2);
+};
 
 my %StatusCodes= (
 	'success' => 0,
 	'no-op'   => 1,
 );
 
-my $cmd;
 try {
-	my ($cmdclass, $params)= App::Casbak::Cmd->parse_argv(\@ARGV);
-	my $cmd= $cmdclass->new($params);
-
-	# App::Casbak has globally-defined logging functions, and we enable/disable them
-	#  with this class method.
-	App::Casbak->SetLogLevel($cmd->verbosity);
-
-	# When trace is enabled, dump the complete internal structure of the command object
-	App::Casbak::Trace($cmd);
-
 	my $status= $cmd->run();
 	die "Command returned invalid exit code: '$status'"
 		unless defined $StatusCodes{$status};
@@ -49,17 +66,16 @@ try {
 	exit $StatusCodes{$status};
 }
 catch {
-	# Exceptions during constructor indicate invalid arguments
-	if (ref $_ && ref($_)->can('pod_source')) {
-		require Pod::Usage;
-		Pod::Usage::pod2usage(-message => $_->message, -input => $_->pod_source, -exitcode => 2);
-	} elsif (ref $_ && ref($_)->can('exit_code')) {
-		print STDERR $_->message."\n";
-		exit $_->exit_code;
-	} else {
-		chomp( my $err= "$_" );
-		print STDERR "$err\n";
-		# Exit with 2 if during initialization, or 3 if during execution
-		exit (defined $cmd? 3 : 2);
-	}
+	exit_exception($_, 3);
 };
+
+sub exit_exception {
+	my ($exception, $exit_code)= @_;
+	my $log_level= ref $exception && ref($exception)->can('log_level')? $exception->log_level : 'fatal';
+	my $message= ref $exception && ref($exception)->can('message')? $exception->message : do { my $x; chomp($x= "$_"); $x };
+	$log->$log_level($message);
+
+	$exit_code= $exception->exit_code
+		if ref $exception && ref($exception)->can('exit-code');
+	exit $exit_code;
+}
