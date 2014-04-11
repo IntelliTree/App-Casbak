@@ -28,18 +28,24 @@ require Getopt::Long;
 my $log_filter= -(defined $ENV{CASBAK_DEBUG}? $ENV{CASBAK_DEBUG} + 1 : 0);
 Log::Any::Adapter->set('+App::Casbak::Logger', _filter => $log_filter);
 
-my $cmd;
+my ($cmd, $cmdclass, $params);
 try {
-	my ($cmdclass, $params)= App::Casbak::Cmd->parse_argv(\@ARGV);
+	($cmdclass, $params)= App::Casbak::Cmd->parse_argv(\@ARGV);
 
 	# Now that we've seen the --verbose/--quiet arguments, adjust our log level
 	Log::Any::Adapter->set('+App::Casbak::Logger', _filter => $log_filter - $params->{verbosity})
 		if defined $params->{verbosity};
-
-	# Create command object
-	$cmd= $cmdclass->new($params);
-	# When trace is enabled, dump the complete internal structure of the command object
-	$log->trace($cmd);
+	
+	# If they gave --help or --version, don't try constructing the class
+	if ($params->{want_help} || $params->{want_version}) {
+		$cmd= $cmdclass;
+	}
+	else {
+		# Create command object
+		$cmd= $cmdclass->new($params);
+		# When trace is enabled, dump the complete internal structure of the command object
+		$log->trace($cmd);
+	}
 }
 # Exceptions during constructor indicate invalid arguments
 catch {
@@ -56,12 +62,14 @@ my %StatusCodes= (
 );
 
 try {
-	my $status= $cmd->run();
+	my $status= $params->{want_version}? $cmdclass->show_version()
+		: $params->{want_help}? $cmdclass->show_help($params->{want_help} > 1)
+		: $cmd->run();
 	die "Command returned invalid exit code: '$status'"
 		unless defined $StatusCodes{$status};
 	
 	$status= 'success'
-		if $status eq 'no-op' && $cmd->allow_no_op;
+		if $status eq 'no-op' && $params->{allow_no_op};
 
 	exit $StatusCodes{$status};
 }

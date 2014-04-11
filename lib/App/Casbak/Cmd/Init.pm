@@ -16,17 +16,15 @@ __PACKAGE__->register_command(
 
 sub parse_argv {
 	my ($class, $argv, $p)= @_;
-	goto \&App::Casbak::Cmd::parse_argv
-		unless defined $p;
-	my $config= ($p->{user_config} ||= {});
-	Getopt::Long::Configure(qw: no_ignore_case bundling permute :);
-	Getopt::Long::GetOptionsFromArray($argv,
+	$p||= {};
+	my $config= {};
+	$p->{casbak_args}{config}= $config;
+	return $class->SUPER::parse_argv($argv, $p, {
 		'storage-engine|s=s' => sub { _apply_cas($config, "$_[1]") },
 		'dir-type|d=s'       => sub { _apply_dirtype($config, "$_[1]") },
 		'digest=s'           => sub { _apply_digest($config, "$_[1]") },
 		'<>'                 => sub { _apply_nameval($config, "$_[0]") }
-		) or die $class->syntax_error('');
-	return ($class, $p);
+	});
 }
 
 sub BUILD {
@@ -41,9 +39,7 @@ sub BUILD {
 
 sub run {
 	my $self= shift;
-	return $self->SUPER::run()
-		if $self->want_version || $self->want_help;
-
+	
 	my $cfg= ($self->casbak_args->{config} ||= {});
 
 	$cfg->{cas}= $self->_build_module_args($self->user_config->{cas});
@@ -152,8 +148,6 @@ and File::CAS::Scanner for all available constructor parameters.
 Most of the important ones are given distinct options and described below.
 
 =head1 OPTIONS
-
-See "casbak --help" for general-purpose options.
 
 =over 8
 

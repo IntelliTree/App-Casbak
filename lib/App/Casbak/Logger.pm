@@ -15,13 +15,13 @@ BEGIN {
 	);
 
 	my $prev_level= 0;
-	# We implement the stock methods, and also [fatal, alert, emergency] so that the
+	# We implement the stock methods, and also 'fatal' so that the
 	# message written to the log starts with the proper level name.
-	foreach my $method ( Log::Any->logging_methods(), 'fatal', 'alert', 'emergency' ) {
-		my $level= $prev_level= $levels{$method} || $prev_level;
+	foreach my $method ( Log::Any->logging_methods(), 'fatal' ) {
+		my $level= $prev_level= defined $levels{$method}? $levels{$method} : $prev_level;
 		no strict 'refs';
 		no warnings 'redefine';
-		
+
 		*{__PACKAGE__ . "::$method"}= ($level >= 0)
 			? sub { $level > (shift)->{_filter} and print STDERR "$method: ", @_, "\n"; }
 			: sub {

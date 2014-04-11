@@ -4,9 +4,9 @@ use Try::Tiny;
 use Carp;
 use Module::Runtime;
 use App::Casbak;
+use Log::Any '$log';
 
-has want_version  => ( is => 'rw' );
-has want_help     => ( is => 'rw' );
+has for_command   => ( is => 'rw' );
 has verbosity     => ( is => 'rw', default => sub { 0 } );
 has allow_no_op   => ( is => 'rw' );
 
@@ -18,28 +18,47 @@ sub backup_dir {
 	$args->{backup_dir}
 }
 
+sub get_base_opts {
+	my ($self, $p)= @_;
+	return
+}
+
 sub parse_argv {
-	my ($class, $argv, $p)= @_;
+	my ($class, $argv, $p, $sub_options)= @_;
 	$p ||= { };
 	require Getopt::Long;
-	Getopt::Long::Configure(qw: no_ignore_case bundling require_order :);
-	Getopt::Long::GetOptionsFromArray(
-		$argv,
-		'version|V'      => sub { $p->{want_version}= "$_[1]" },
-		'help|?'         => sub { $p->{want_help}= "$_[1]" },
-		'allow-noop'     => sub { $p->{allow_no_op}= "$_[1]" },
+	Getopt::Long::Configure('no_ignore_case', 'bundling', $sub_options? 'permute' : 'require_order');
+	Getopt::Long::GetOptionsFromArray($argv,
+		'version|V'      => sub { $p->{want_version}= 1 },
+		'help|?'         => sub { $p->{want_help}= 1 },
+		'man'            => sub { $p->{want_help}= 2 },
+		'allow-noop'     => sub { $p->{allow_no_op}= 1 },
 		'verbose|v'      => sub { $p->{verbosity}++ },
 		'quiet|q'        => sub { $p->{verbosity}-- },
 		'casbak-dir|D=s' => sub { $p->{casbak_args}{backup_dir}= "$_[1]" },
-	) or die $class->syntax_error('');
-	if (@$argv) {
-		my $cmd_name= shift @$argv;
-		my $cmd_class= $class->load_subcommand($cmd_name)
-			or die $class->syntax_error("No such command \"$cmd_name\"");
-		my $cmd_parse= $cmd_class->can('parse_argv');
-		croak "parse_argv not implemented in $cmd_class"
-			unless defined $cmd_parse && $cmd_parse ne \&parse_argv;
-		return $cmd_class->parse_argv($argv, $p);
+		($sub_options? %$sub_options : ())
+	)
+	or $p->{want_help} || $p->{want_version}
+	or die $class->syntax_error('');
+	
+	# If no sub-options, first argument might be a command name,
+	# which we use to load an appropriate subclass.
+	if (!$sub_options) {
+		if (@$argv && $argv->[0] eq 'help') {
+			shift @$argv;
+			$p->{want_help}= 1;
+		}
+		if (@$argv) {
+			# we assume the first non-argument is a sub-command
+			my $cmd_name= shift @$argv;
+			my $cmd_class= $class->load_subcommand($cmd_name)
+				or die $class->syntax_error("No such command \"$cmd_name\"");
+			
+			my $cmd_parse= $cmd_class->can('parse_argv');
+			croak "parse_argv not implemented in $cmd_class"
+				unless defined $cmd_parse && $cmd_parse ne \&parse_argv;
+			return $cmd_class->parse_argv($argv, $p);
+		}
 	}
 	return ($class, $p);
 }
@@ -111,38 +130,30 @@ sub find_all_subcommands {
 	[ keys %pkgSet ]
 }
 
-sub load_all_subcommands {
-	my $class= shift;
-	my $packages= $class->find_all_subcommands();
-	for my $pkg (@$packages) {
-		try {
-			Module::Runtime::require_module($pkg);
-		};
-	}
-}
-
-sub BUILD {
-}
-
 sub run {
 	my $self= shift;
-
-	# They specified '--version'. Print it and exit.
-	if ($self->want_version) {
-		print App::Casbak->VersionMessage();
-		return 'no-op';
-	}
-
-	# They specified '--help'.  Print the full POD and exit.
-	if ($self->want_help) {
-		require Pod::Usage;
-		Pod::Usage::pod2usage(-verbose => 2, -input => $self->get_pod_source, -exitval => 'noexit');
-		return 'no-op';
-	}
 
 	die $self->syntax_error("Sub-command required")
 		unless $self->allow_no_op;
 	'no-op';
+}
+
+sub show_help {
+	my ($class, $long)= @_;
+	$class= ref $class if ref $class;
+	require Pod::Usage;
+	Pod::Usage::pod2usage(
+		-verbose => $long? 2 : 1,
+		-input => $class->get_pod_source,
+		-exitval => 'noexit');
+	print "See \"casbak --help\" for global options.\n" unless $class eq __PACKAGE__;
+	print "Use --man for the complete manual\n" unless $long;
+	return 'no-op';
+}
+
+sub show_version {
+	print App::Casbak->VersionMessage();
+	return 'no-op';
 }
 
 sub get_pod_source {
@@ -154,38 +165,7 @@ sub get_pod_source {
 			if ref $pod && ref $pod eq 'CODE';
 		return $pod;
 	}
-	
-	# First, use dynamic module loading to find all the command classes
-	$class->load_all_subcommands();
-
-	# Now, format each command using POD notation, to make the body of the COMMANDS section.
-	my $commandsPod=
-		"=over 12\n"
-		."\n"
-		.join('', map {
-			my ($pkg, $cmd)= ($_, $_ =~ /([^:]*)$/);
-			"=item $_->{command}\n"
-			."\n"
-			."$_->{description}\n"
-			."\n"
-		} sort { $a->{command} cmp $b->{command} } values %_Commands)
-		."=back\n";
-
-	# Now read the source of this file
-	my $source= do {
-		open(my $f, '<', __FILE__)
-			or die "Unable to read script (".__FILE__.") to extract help text: $!\n";
-		local $/= undef;
-		<$f>;
-	};
-	
-	# And substitute the $commandsPod into the COMMANDS section
-	($source =~ s/\n=head1 COMMANDS.*?=head1/\n=head1 COMMANDS\n\n$commandsPod\n=head1/s )
-		or warn "Internal error: failed to substitute command listing into help text.";
-	
-	# Return it as a filehandle
-	open my $f, '<', \$source or die "open(STRING): $!";
-	return $f;
+	return __FILE__;
 }
 
 sub syntax_error {
@@ -214,12 +194,11 @@ casbak - backup tool built around DataStore::CAS::FS library
   casbak --version
   casbak --help
 
-Use "casbak --help" for a list of all installed commands.
+Use "casbak commands" for a list of all installed commands.
 
 =head1 COMMANDS
 
-This list is dynamically generated from the installed modules by the casbak
-script.  See --help
+For a list of all installed commands, run "casbak commands"
 
 =head1 OPTIONS
 
@@ -300,9 +279,9 @@ There may also be other exploits possible by modifying the backup config
 file.  Ensure that only highly priveleged users have access to the backup
 directory.
 
-(Really, these precautions are common sense, as someone able to modify a
- backup, or access password files stored in the backup, or modify the
- environment of a backup script, or write to your perl module path would
- have a myriad of other ways to compromise your system.)
+(Really, these precautions should be common sense, as someone able to modify
+a backup, or access password files stored in the backup, or modify the
+environment of a backup script, or write to your perl module path would
+have a myriad of other ways to compromise your system.)
 
 =cut

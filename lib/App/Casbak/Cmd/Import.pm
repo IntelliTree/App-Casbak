@@ -23,18 +23,13 @@ has snapshot_meta     => ( is => 'rw', default => sub { {} } );
 
 sub parse_argv {
 	my ($class, $argv, $p)= @_;
-	goto \&App::Casbak::Cmd::parse_argv
-		unless defined $p;
-
-	require Getopt::Long;
-	Getopt::Long::Configure(qw: no_ignore_case bundling permute :);
-	Getopt::Long::GetOptionsFromArray($argv,
+	$p||= {};
+	return $class->SUPER::parse_argv($argv, $p, {
 		'quick'       => sub { $p->{compare_meta_only}= 1 },
 		'<>'          => sub { _add_path($p, "$_[0]") },
 		'as=s'        => sub { _set_virtual_path($p, "$_[1]") },
 		'comment|m=s' => sub { $p->{snapshot_meta}{comment}= "$_[1]" },
-		) or die "\n";
-	return ($class, $p);
+	});
 }
 
 sub _add_path {
@@ -51,8 +46,6 @@ sub _set_virtual_path {
 
 sub run {
 	my $self= shift;
-	return $self->SUPER::run()
-		if $self->want_version || $self->want_help;
 	
 	unless (scalar $self->path_list) {
 		my $msg= "No paths specified.  Nothing to do\n";
@@ -117,9 +110,9 @@ casbak-import - import files from real filesystem to virtual CAS filesystem
 
 =item --as VIRTUAL_PATH
 
-Files are backed up from PATH (canonical, fully resolved, no symlinks)
-in the real filesystem to a virtual path in the backup by the same
-(canonical) name.
+By default, files are backed up from PATH (canonical, fully resolved,
+no symlinks) in the real filesystem to a virtual path in the backup by the
+same (canonical) name.
 
 If you want the backup to contain the files in a different layout than
 the real filesystem, you may specify "--as VIRTUAL_PATH" after a target.
@@ -139,8 +132,6 @@ is enabled).
 
 =back
 
-See "casbak --help" for general-purpose options.
-
 =head1 EXAMPLES
 
   # Backup the directories /usr/bin, /usr/local/bin, and /bin
@@ -159,6 +150,6 @@ See "casbak --help" for general-purpose options.
 
 =head1 SECURITY
 
-See discussion in "casbak --help"
+See discussion in casbak manual page
 
 =cut
