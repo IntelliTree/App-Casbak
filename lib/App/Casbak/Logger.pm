@@ -25,8 +25,8 @@ BEGIN {
 		*{__PACKAGE__ . "::$method"}= ($level >= 0)
 			? sub { $level > (shift)->{_filter} and print STDERR "$method: ", @_, "\n"; }
 			: sub {
+				return unless $level > $_[0]{_filter};
 				my $self= shift;
-				return unless $level > $self->{_filter};
 				print STDERR
 					join(' ', "$method:",
 						map { !defined $_? '<undef>' : !ref $_? $_ : $self->_dump($_) } @_
@@ -40,7 +40,7 @@ BEGIN {
 sub _dump {
 	my ($self, $data)= @_;
 	my $x= Data::Dumper->new([$data])->Indent(0)->Terse(1)->Useqq(1)->Quotekeys(0)->Maxdepth(4)->Sortkeys(1)->Dump;
-	substr($x, 150)= '...' if length $x > 150;
+	substr($x, 1020)= '...' if length $x >= 1024;
 	$x;
 }
 
